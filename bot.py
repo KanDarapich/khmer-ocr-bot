@@ -1,40 +1,91 @@
 import os
-import pytesseract
+import logging
+
 from PIL import Image
+import pytesseract
+
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-# Read token from environment variable
-TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
-if not TELEGRAM_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable missing.")
+# ---------- logging ----------
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
-# Tesseract path inside Docker
+# ---------- configuration ----------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set")
+
+# Tesseract path inside Railway Docker container
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send me an image and I will extract Khmer/English text.")
+# Use Khmer + English
+OCR_LANG = "khm+eng"
 
-async def ocr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# ---------- handlers ----------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Hello! Send me an image with Khmer or English text and I’ll try to read it."
+    )
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Just send a photo that contains text. I’ll reply with the recognized text."
+    )
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.photo:
+        return
+
     photo = update.message.photo[-1]
     file = await photo.get_file()
-    file_path = "image.jpg"
-    await file.download_to_drive(file_path)
+
+    local_path = "input.jpg"
+    await file.download_to_drive(local_path)
 
     try:
-        text = pytesseract.image_to_string(Image.open(file_path), lang="khm+eng")
-        if text.strip():
+        image = Image.open(local_path)
+
+        text = pytesseract.image_to_string(image, lang=OCR_LANG)
+        text = text.strip()
+
+        if text:
             await update.message.reply_text(text)
         else:
-            await update.message.reply_text("No text found.")
+            await update.message.reply_text("I couldn’t detect any text in that image.")
     except Exception as e:
-        await update.message.reply_text(f"OCR error: {e}")
+        logger.exception("OCR failed")
+        await update.message.reply_text(f"❌ OCR failed: {e}")
+    finally:
+        try:
+            os.remove(local_path)
+        except FileNotFoundError:
+            pass
 
-def main():
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(MessageHandler(filters.COMMAND, start))
-    app.add_handler(MessageHandler(filters.PHOTO, ocr_handler))
+
+# ---------- main ----------
+def main() -> None:
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+    logger.info("Starting bot with polling on Railway...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
