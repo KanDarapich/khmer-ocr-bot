@@ -19,8 +19,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy bot code
 COPY . .
 
-# Expose port (Railway needs this)
-EXPOSE 8080
-
-# Run the bot
+# Run the bot with polling (no port required)
 CMD ["python", "bot.py"]
