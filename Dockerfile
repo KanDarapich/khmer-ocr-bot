@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# Install Tesseract + Khmer language pack
 RUN apt update && apt install -y \
     tesseract-ocr \
     tesseract-ocr-khm \
